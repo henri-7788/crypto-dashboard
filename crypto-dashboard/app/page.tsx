@@ -27,7 +27,7 @@ export default function Home() {
         {/* Header */}
         <header className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">Good Morning David</h1>
+            <h1 className="text-2xl font-bold text-gray-800">Good Morning ...</h1>
             <p className="text-gray-400 text-sm">Your weekly financial update</p>
           </div>
           <div className="flex items-center gap-4">
