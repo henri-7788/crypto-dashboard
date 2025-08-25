@@ -375,7 +375,177 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="market" className="space-y-4">
+        <h2 className="text-lg font-semibold">Market Overview</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <FearGreedWidget />
+          <LiveTickers symbols={["btcusdt", "ethusdt", "solusdt"]} />
+          <NewsFeed />
+        </div>
+        <EconomicCalendar />
+      </section>
+
       <TradingJournal trades={trades} setTrades={setTrades} filter={filter} />
+    </div>
+  );
+}
+
+function FearGreedWidget() {
+  const [data, setData] = useState<{ value: string; value_classification: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("https://api.alternative.me/fng/?limit=1")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return;
+        const d = j?.data?.[0];
+        if (d) setData({ value: d.value, value_classification: d.value_classification });
+      })
+      .catch((e) => setError(String(e)));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
+      <div className="text-sm opacity-70 mb-2">Fear & Greed Index</div>
+      {data ? (
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-3xl font-semibold">{data.value}</div>
+            <div className="text-sm opacity-70">{data.value_classification}</div>
+          </div>
+          <div className="size-16 rounded-full border-4 border-black/[.12] dark:border-white/[.18] flex items-center justify-center text-lg">
+            {data.value}
+          </div>
+        </div>
+      ) : error ? (
+        <div className="text-sm opacity-70">Failed to load</div>
+      ) : (
+        <div className="text-sm opacity-70">Loading…</div>
+      )}
+    </div>
+  );
+}
+
+type Ticker = { s: string; c: string };
+function LiveTickers({ symbols }: { symbols: string[] }) {
+  const [prices, setPrices] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const streams = symbols.map((s) => `${s}@ticker`).join("/");
+    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        const payload: Ticker = msg?.data;
+        if (payload?.s && payload?.c) {
+          setPrices((p) => ({ ...p, [payload.s]: payload.c }));
+        }
+      } catch {}
+    };
+    return () => {
+      try { ws.close(); } catch {}
+    };
+  }, [symbols]);
+
+  return (
+    <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
+      <div className="text-sm opacity-70 mb-2">Live Prices (Binance)</div>
+      <div className="grid grid-cols-3 gap-2">
+        {symbols.map((s) => {
+          const key = s.toUpperCase();
+          const price = prices[key] ?? "—";
+          return (
+            <div key={s} className="rounded-md border border-black/[.08] dark:border-white/[.145] p-2 text-center">
+              <div className="text-xs opacity-70">{key}</div>
+              <div className="font-semibold">{price}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function EconomicCalendar() {
+  const [items, setItems] = useState<Array<{ Country?: string; Category?: string; Event?: string; Date?: string; Importance?: string }>>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const url = "https://api.tradingeconomics.com/calendar?c=guest:guest&format=json";
+    fetch(url)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return;
+        const upcoming = Array.isArray(j) ? j : [];
+        const simplified = upcoming
+          .filter((x) => x?.Date && x?.Event)
+          .sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime())
+          .slice(0, 10);
+        setItems(simplified);
+      })
+      .catch((e) => setError(String(e)));
+    return () => { alive = false; };
+  }, []);
+  return (
+    <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
+      <div className="text-sm opacity-70 mb-2">Economic Calendar</div>
+      {error ? (
+        <div className="text-sm opacity-70">Failed to load</div>
+      ) : items.length === 0 ? (
+        <div className="text-sm opacity-70">Loading…</div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((it, idx) => (
+            <div key={idx} className="flex gap-2 text-sm">
+              <div className="w-[120px] opacity-70">{it.Date ? new Date(it.Date).toLocaleString() : ""}</div>
+              <div className="flex-1 truncate" title={it.Event}>{it.Event}</div>
+              <div className="w-[80px] text-right opacity-70">{it.Country}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewsFeed() {
+  const token = (typeof process !== "undefined" ? (process as any).env?.NEXT_PUBLIC_CRYPTOPANIC_TOKEN : undefined) as string | undefined;
+  const [items, setItems] = useState<Array<{ title: string; url: string; domain?: string }>>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (!token) {
+      setError("Set NEXT_PUBLIC_CRYPTOPANIC_TOKEN to enable news feed");
+      return () => { alive = false; };
+    }
+    fetch(`https://cryptopanic.com/api/v1/posts/?auth_token=${token}&public=true`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return;
+        const posts = j?.results ?? [];
+        setItems(posts.map((p: any) => ({ title: p.title, url: p.url, domain: p.domain })));
+      })
+      .catch((e) => setError(String(e)));
+    return () => { alive = false; };
+  }, [token]);
+  return (
+    <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
+      <div className="text-sm opacity-70 mb-2">Live News</div>
+      {error ? (
+        <div className="text-sm opacity-70">{error}</div>
+      ) : items.length === 0 ? (
+        <div className="text-sm opacity-70">Loading…</div>
+      ) : (
+        <div className="space-y-2">
+          {items.slice(0, 6).map((n, idx) => (
+            <a key={idx} href={n.url} target="_blank" rel="noreferrer" className="block text-sm hover:underline truncate">
+              {n.title} <span className="opacity-60">{n.domain ? `(${n.domain})` : ""}</span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
