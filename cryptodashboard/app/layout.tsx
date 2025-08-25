@@ -26,7 +26,31 @@ export default function RootLayout({
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        suppressHydrationWarning
       >
+        {/* Initialize theme script */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function(){
+                var key='theme';
+                var root=document.documentElement;
+                function apply(t){ root.setAttribute('data-theme', t); }
+                var pref=localStorage.getItem(key);
+                if(!pref){
+                  var m=window.matchMedia('(prefers-color-scheme: dark)').matches;
+                  pref=m?'dark':'light';
+                }
+                apply(pref);
+                window.toggleTheme=function(){
+                  var next=(root.getAttribute('data-theme')==='dark')?'light':'dark';
+                  apply(next); localStorage.setItem(key,next);
+                  try{dispatchEvent(new Event('themechange'))}catch(e){}
+                };
+              })();
+            `,
+          }}
+        />
         <div className="flex min-h-screen w-full bg-background text-foreground">
           {/* Sidebar */}
           <aside className="hidden md:flex md:w-[240px] border-r border-black/[.08] dark:border-white/[.145] p-4 sticky top-0 h-screen">
@@ -53,6 +77,8 @@ export default function RootLayout({
                     placeholder="Search..."
                     aria-label="Search"
                   />
+                  {/* Theme toggle */}
+                  <ThemeToggle />
                 </div>
               </div>
             </header>
@@ -63,5 +89,18 @@ export default function RootLayout({
         </div>
       </body>
     </html>
+  );
+}
+
+function ThemeToggle() {
+  if (typeof window === "undefined") return null as any;
+  return (
+    <button
+      onClick={() => (window as any).toggleTheme?.()}
+      aria-label="Toggle theme"
+      className="h-9 rounded-md border border-black/[.08] dark:border-white/[.145] text-sm px-3 hover:bg-black/5 dark:hover:bg-white/10"
+    >
+      Theme
+    </button>
   );
 }

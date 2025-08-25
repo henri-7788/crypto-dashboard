@@ -14,6 +14,33 @@ import {
   Legend,
 } from "recharts";
 
+// Use fixed locale and timezone to avoid SSR/CSR hydration mismatches for dates
+const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+  timeZone: "UTC",
+});
+
+const dateFormatter = new Intl.DateTimeFormat("de-DE", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  timeZone: "UTC",
+});
+
+function formatDateTimeUtc(iso: string) {
+  return dateTimeFormatter.format(new Date(iso));
+}
+
+function formatDateUtc(iso: string) {
+  return dateFormatter.format(new Date(iso));
+}
+
 type StatCardProps = {
   title: string;
   value: string | number;
@@ -27,6 +54,26 @@ function StatCard({ title, value, hint }: StatCardProps) {
       <div className="text-2xl font-semibold mt-1">{value}</div>
       {hint ? <div className="text-xs mt-1 opacity-60">{hint}</div> : null}
     </div>
+  );
+}
+
+function ExportCsv({ trades }: { trades: Trade[] }) {
+  function toCsv() {
+    const headers = ["id","date","asset","side","qty","entry","exit","fees","notes"];
+    const rows = trades.map((t) => [t.id, t.date, t.asset, t.side, t.qty, t.entry, t.exit ?? "", t.fees ?? "", (t.notes ?? "").replace(/\n/g, " ")]);
+    const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trades_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  return (
+    <button className="h-9 rounded-md border border-black/[.08] dark:border-white/[.145] text-sm px-3 hover:bg-black/5 dark:hover:bg-white/10" onClick={toCsv}>
+      Export CSV
+    </button>
   );
 }
 
@@ -139,6 +186,10 @@ function TradingJournal({ trades, setTrades, filter }: TradingJournalProps) {
     <section id="journal" className="mt-8">
       <div className="flex items-end justify-between gap-3 mb-3">
         <h2 className="text-lg font-semibold">Trading Journal</h2>
+        <div className="flex items-center gap-2">
+          <ExportCsv trades={filteredTrades} />
+          <button className="h-9 rounded-md border border-black/[.08] dark:border-white/[.145] text-sm px-3 hover:bg-black/5 dark:hover:bg-white/10" onClick={() => window.print()}>Print PDF</button>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 mb-4">
@@ -180,7 +231,7 @@ function TradingJournal({ trades, setTrades, filter }: TradingJournalProps) {
           <tbody>
             {filteredTrades.map((t) => (
               <tr key={t.id} className="border-t border-black/[.06] dark:border-white/[.09]">
-                <td className="px-3 py-2 whitespace-nowrap">{new Date(t.date).toLocaleString()}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{formatDateTimeUtc(t.date)}</td>
                 <td className="px-3 py-2">{t.asset}</td>
                 <td className="px-3 py-2">
                   <span className={"px-2 py-0.5 rounded text-xs " + (t.side === "LONG" ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-400")}>{t.side}</span>
@@ -256,7 +307,7 @@ function computeKpis(trades: Trade[]) {
     equity += pnl;
     peak = Math.max(peak, equity);
     maxDrawdown = Math.min(maxDrawdown, equity - peak);
-    return { date: new Date(t.date).toLocaleDateString(), equity: Number(equity.toFixed(2)) };
+    return { date: formatDateUtc(t.date), equity: Number(equity.toFixed(2)) };
   });
   const drawdown = maxDrawdown;
   return { winrate, profitFactor, drawdown, equityPoints };
@@ -287,7 +338,9 @@ function strategyDistribution(trades: Trade[]) {
 const PIE_COLORS = ["#60a5fa", "#34d399", "#fbbf24", "#f87171", "#c084fc", "#f472b6"]; 
 
 export default function Home() {
-  const [trades, setTrades] = useLocalStorage<Trade[]>("trades", DUMMY_TRADES);
+  const [account, setAccount] = useLocalStorage<string>("active_account", "Main");
+  const [accounts, setAccounts] = useLocalStorage<string[]>("accounts", ["Main"]);
+  const [trades, setTrades] = useLocalStorage<Trade[]>(`trades_${account}`, DUMMY_TRADES);
   const [filter, setFilter] = useState<TradeFilter>({ side: "ALL" });
 
   const totalTrades = trades.length;
@@ -297,6 +350,20 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <div className="text-sm opacity-70">Account</div>
+        <select className="h-9 rounded-md border border-black/[.08] dark:border-white/[.145] bg-transparent px-3 text-sm" value={account} onChange={(e) => setAccount(e.target.value)}>
+          {accounts.map((a) => (
+            <option key={a}>{a}</option>
+          ))}
+        </select>
+        <button className="h-9 rounded-md border border-black/[.08] dark:border-white/[.145] text-sm px-3 hover:bg-black/5 dark:hover:bg-white/10" onClick={() => {
+          const name = prompt("New account name?");
+          if (!name) return;
+          if (!accounts.includes(name)) setAccounts([...accounts, name]);
+          setAccount(name);
+        }}>+ Add</button>
+      </div>
       <section id="overview">
         <h2 className="text-lg font-semibold mb-3">Overview</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -383,6 +450,16 @@ export default function Home() {
           <NewsFeed />
         </div>
         <EconomicCalendar />
+      </section>
+
+      <section id="journal-psych" className="space-y-4">
+        <h2 className="text-lg font-semibold">Psychology & Journal</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <NotesEmotion />
+          <PreTradeChecklist />
+          <GoalsRules />
+        </div>
+        <ReviewSection />
       </section>
 
       <TradingJournal trades={trades} setTrades={setTrades} filter={filter} />
@@ -499,7 +576,7 @@ function EconomicCalendar() {
         <div className="space-y-2">
           {items.map((it, idx) => (
             <div key={idx} className="flex gap-2 text-sm">
-              <div className="w-[120px] opacity-70">{it.Date ? new Date(it.Date).toLocaleString() : ""}</div>
+              <div className="w-[120px] opacity-70">{it.Date ? formatDateTimeUtc(it.Date) : ""}</div>
               <div className="flex-1 truncate" title={it.Event}>{it.Event}</div>
               <div className="w-[80px] text-right opacity-70">{it.Country}</div>
             </div>
@@ -514,6 +591,7 @@ function NewsFeed() {
   const token = (typeof process !== "undefined" ? (process as any).env?.NEXT_PUBLIC_CRYPTOPANIC_TOKEN : undefined) as string | undefined;
   const [items, setItems] = useState<Array<{ title: string; url: string; domain?: string }>>([]);
   const [error, setError] = useState<string | null>(null);
+  const [lastTitle, setLastTitle] = useLocalStorage<string>("news_last_title", "");
   useEffect(() => {
     let alive = true;
     if (!token) {
@@ -526,10 +604,19 @@ function NewsFeed() {
         if (!alive) return;
         const posts = j?.results ?? [];
         setItems(posts.map((p: any) => ({ title: p.title, url: p.url, domain: p.domain })));
+        const newest = posts[0]?.title as string | undefined;
+        if (newest && newest !== lastTitle && typeof window !== "undefined" && "Notification" in window) {
+          if (Notification.permission === "granted") {
+            new Notification("New Crypto News", { body: newest });
+          } else if (Notification.permission !== "denied") {
+            Notification.requestPermission();
+          }
+          setLastTitle(newest);
+        }
       })
       .catch((e) => setError(String(e)));
     return () => { alive = false; };
-  }, [token]);
+  }, [token, lastTitle, setLastTitle]);
   return (
     <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
       <div className="text-sm opacity-70 mb-2">Live News</div>
@@ -546,6 +633,100 @@ function NewsFeed() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function NotesEmotion() {
+  const [notes, setNotes] = useLocalStorage<string>("daily_notes", "");
+  const [emotion, setEmotion] = useLocalStorage<string>("daily_emotion", "Neutral");
+  return (
+    <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
+      <div className="text-sm opacity-70 mb-2">Tagesnotizen & Emotion</div>
+      <select className="h-9 w-full rounded-md border border-black/[.08] dark:border-white/[.145] bg-transparent px-3 text-sm mb-2" value={emotion} onChange={(e) => setEmotion(e.target.value)}>
+        <option>Excited</option>
+        <option>Confident</option>
+        <option>Neutral</option>
+        <option>Cautious</option>
+        <option>Stressed</option>
+      </select>
+      <textarea className="min-h-[120px] w-full rounded-md border border-black/[.08] dark:border-white/[.145] bg-transparent p-3 text-sm" placeholder="Schreibe deine Gedanken..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+    </div>
+  );
+}
+
+function PreTradeChecklist() {
+  type Item = { id: string; label: string; done: boolean };
+  const defaultItems: Item[] = [
+    { id: "c1", label: "Setup erfüllt (Strategie)", done: false },
+    { id: "c2", label: "Risk <= 1%", done: false },
+    { id: "c3", label: "News/Events gecheckt", done: false },
+    { id: "c4", label: "Stop/Limits definiert", done: false },
+  ];
+  const [items, setItems] = useLocalStorage<Item[]>("pretrade_checklist", defaultItems);
+  function toggle(id: string) {
+    setItems((arr) => arr.map((i) => (i.id === id ? { ...i, done: !i.done } : i)));
+  }
+  function reset() {
+    setItems(defaultItems);
+  }
+  return (
+    <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm opacity-70">Pre-Trade Checklist</div>
+        <button className="h-8 rounded-md border border-black/[.08] dark:border-white/[.145] text-xs px-2 hover:bg-black/5 dark:hover:bg-white/10" onClick={reset}>Reset</button>
+      </div>
+      <div className="space-y-2">
+        {items.map((i) => (
+          <label key={i.id} className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="size-4" checked={i.done} onChange={() => toggle(i.id)} />
+            <span className={i.done ? "line-through opacity-60" : ""}>{i.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GoalsRules() {
+  const [goals, setGoals] = useLocalStorage<string>("trading_goals", "Ziele: +5%/Monat, Max DD 5%\nRegeln: Kein Revenge-Trade, Max 3 Trades/Tag");
+  return (
+    <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
+      <div className="text-sm opacity-70 mb-2">Ziele & Regeln</div>
+      <textarea className="min-h-[160px] w-full rounded-md border border-black/[.08] dark:border-white/[.145] bg-transparent p-3 text-sm" value={goals} onChange={(e) => setGoals(e.target.value)} />
+    </div>
+  );
+}
+
+function ReviewSection() {
+  type Review = { id: string; period: "Woche" | "Monat"; text: string; createdAt: string };
+  const [reviews, setReviews] = useLocalStorage<Review[]>("reviews", []);
+  const [text, setText] = useState("");
+  const [period, setPeriod] = useState<"Woche" | "Monat">("Woche");
+  function addReview() {
+    if (!text.trim()) return;
+    setReviews((r) => [{ id: crypto.randomUUID(), period, text, createdAt: new Date().toISOString() }, ...r]);
+    setText("");
+  }
+  return (
+    <div className="rounded-xl border border-black/[.08] dark:border-white/[.145] p-3">
+      <div className="text-sm opacity-70 mb-2">Review (Wöchentlich/Monatlich)</div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+        <select className="h-9 rounded-md border border-black/[.08] dark:border-white/[.145] bg-transparent px-3 text-sm" value={period} onChange={(e) => setPeriod(e.target.value as any)}>
+          <option>Woche</option>
+          <option>Monat</option>
+        </select>
+        <input className="md:col-span-2 h-9 rounded-md border border-black/[.08] dark:border-white/[.145] bg-transparent px-3 text-sm" placeholder="Kurzbeschreibung" value={text} onChange={(e) => setText(e.target.value)} />
+        <button className="h-9 rounded-md border border-black/[.08] dark:border-white/[.145] text-sm px-3 hover:bg-black/5 dark:hover:bg-white/10" onClick={addReview}>Speichern</button>
+      </div>
+      <div className="space-y-2 max-h-[220px] overflow-auto">
+        {reviews.map((r) => (
+          <div key={r.id} className="text-sm border rounded-md border-black/[.08] dark:border-white/[.145] p-2">
+            <div className="opacity-70 text-xs mb-1">{r.period} · {formatDateTimeUtc(r.createdAt)}</div>
+            <div>{r.text}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
